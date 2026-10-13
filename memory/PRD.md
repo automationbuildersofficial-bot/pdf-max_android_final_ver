@@ -55,6 +55,14 @@ nothing is uploaded. Cloud sync and nonessential PDF features are deferred.
   list in localStorage; reopen from Recent files after reload (verified).
 - **Verified 2026-06**: testing agent iteration_5.json — 16/16 P0 flows pass on desktop (1280x800)
   and mobile (390x844); sidebar overlay+backdrop+thumb-tap-close working; no console errors.
+- **Enhancements (2026-06)** — verified in iteration_6/7:
+  - Tab-bar "+" now opens a PDF picker (open another PDF) instead of a blank doc.
+  - **Fit-to-screen-width** button (`fit-width-btn`) in TopBar next to zoom controls; zoom-level
+    label rebased to `scale*100` (100% = actual size).
+  - **Share/Download**: `save-device-btn` tries the native Web Share sheet with the PDF file
+    (Android) and falls back to a normal download when Web Share (files) is unsupported.
+  - **Drag-to-reorder tabs** using POINTER events (works on Android touch, not just mouse);
+    tap still activates, close button excluded from drag; `MOVE_DOC` reducer action.
 
 ## Earlier implemented (pre-rewrite, mostly superseded)
   collapses to a compact page-nav + overflow menu (`mobile-menu-btn`) below 768px; PDF pages auto-fit

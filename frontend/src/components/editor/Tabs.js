@@ -20,7 +20,7 @@ export default function Tabs({ docs, activeDocId, onActivate, onClose, onNew, on
     if (e.button != null && e.button !== 0) return;
     if (e.target.closest?.('[data-testid^="tab-close-"]')) return; // let close button work
     drag.current = { id, index: i, startX: e.clientX, started: false, suppressClick: false };
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch (err) { /* some browsers throw when the pointer isn't yet active (e.g. synthesized events); drag still works via refs */ }
   };
   const onPointerMove = (e) => {
     const d = drag.current;
