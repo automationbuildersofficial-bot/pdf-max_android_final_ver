@@ -19,6 +19,7 @@ export default function Reader({ doc, viewMode, setActivePage, onCommit, onSetSc
   const visibleRef = useRef(new Set());
   const ratios = useRef(new Map());
   const fromObserver = useRef(false);
+  const suppressUntil = useRef(0);
   const activateRef = useRef(setActivePage);
   const [, tick] = useState(0);
   activateRef.current = setActivePage;
@@ -91,7 +92,7 @@ export default function Reader({ doc, viewMode, setActivePage, onCommit, onSetSc
             best = id;
           }
         });
-        if (best && best !== activePageId) {
+        if (best && best !== activePageId && Date.now() >= suppressUntil.current) {
           fromObserver.current = true;
           activateRef.current(best);
         }
@@ -114,7 +115,10 @@ export default function Reader({ doc, viewMode, setActivePage, onCommit, onSetSc
     const root = containerRef.current;
     if (!root || !activePageId) return;
     const el = root.querySelector(`[data-page-id="${activePageId}"]`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (el) {
+      suppressUntil.current = Date.now() + 700;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePageId, viewMode]);
 

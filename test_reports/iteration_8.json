@@ -1,0 +1,23 @@
+{
+  "summary": "Frontend-only verification of two new features — PageJump pill and Fit badge — plus light regression. Both features work as specified. Tabs, zoom, open via tab-open-input, new blank doc, and save-device-btn remain functional. Tested on desktop 1280x800 and mobile 390x844.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "jumpToPage(0) correctly clamps to page 1 (setActivePage), but the IntersectionObserver immediately re-syncs the input to whichever page is most-visible after scroll settles (observed value became '2' after clamp-to-1). No crash; behaviour is a side-effect of the auto-sync. Consider temporarily suppressing IntersectionObserver updates for ~400ms after an external jump so the pill reflects the user-entered page.",
+    "page-jump-input is type=number so non-numeric characters are rejected by the browser (never reach commit). The explicit 'revert on NaN' branch is effectively dead code — functionally fine, just worth noting."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "seed_data_creation": "Generated /tmp/multi.pdf (5 pages) and /tmp/single.pdf (1 page) via reportlab for testing.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Verified: PageJump initial value '1 / 5'; jump-to-3 scrolls and updates input to 3; clamp 99→5; non-numeric 'abc' reverts; manual scroll to 75% updates input to 5. Fit badge: fit-width-btn flips zoom-level to text 'Fit' with class 'text-primary font-semibold'; zoom-in-btn or zoom-out-btn switches it back to '%'; fit resets to '%' when switching tabs then returning. PageJump correctly hidden on 1-page PDF and new blank document. Mobile 390x844: page-jump bbox {x:292,y:794,w:82,h:34} sits bottom-right above the toolbar as intended. save-device-btn click succeeded without error. Minor observation: after jump-to-0 (clamped to 1) the input eventually displayed '2' due to IntersectionObserver re-syncing on scroll settle — no crash, documented in review comments.",
+  "test_credentials": "N/A",
+  "rca of the issue": "No bugs — informational only. The 'jump to 0 → input shows 2' is caused by the IntersectionObserver updating activePageId from the scroll result (page 2 had higher intersection ratio than page 1 after scrollIntoView). Mitigation: debounce or ignore IO updates for a short window immediately after a programmatic jump."
+}

@@ -63,6 +63,11 @@ nothing is uploaded. Cloud sync and nonessential PDF features are deferred.
     (Android) and falls back to a normal download when Web Share (files) is unsupported.
   - **Drag-to-reorder tabs** using POINTER events (works on Android touch, not just mouse);
     tap still activates, close button excluded from drag; `MOVE_DOC` reducer action.
+  - **Page Jump** (`page-jump` / `page-jump-input`): floating bottom-right pill showing "current / N";
+    type a page + Enter to jump (Reader scrolls to it); auto-syncs to the page in view; hidden for
+    single-page docs. Observer re-sync suppressed ~700ms after a programmatic jump so the number is stable.
+  - **Fit badge**: zoom indicator shows "Fit" (primary/bold) when fit-to-width is active, reverting to
+    a percentage on manual zoom/pinch and resetting on tab switch.
 
 ## Earlier implemented (pre-rewrite, mostly superseded)
   collapses to a compact page-nav + overflow menu (`mobile-menu-btn`) below 768px; PDF pages auto-fit
