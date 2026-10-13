@@ -12,15 +12,22 @@ save-back (File System Access API), tabs for multiple PDFs, on-device recent-fil
 collapsible sidebar, movable annotation toolbar, and multiple reading modes (continuous scroll
 default, single page, book/two-page).
 
+## Current direction (2026-06) — Android-optimized, local-only web app
+Per the user, the product is a **web app optimized for Android (not native)**, reliability-first,
+with heavy extras removed from the editing flow. **Login/auth was removed** — the app opens
+straight into the editor. All document content stays on-device (IndexedDB + localStorage);
+nothing is uploaded. Cloud sync and nonessential PDF features are deferred.
+
 ## Architecture
 - **Frontend**: React (CRACO), Tailwind + shadcn/ui, lucide-react. PDF render via `pdfjs-dist`
-  (worker from cdnjs), structural/export via `pdf-lib` (WYSIWYG raster export). Auth via
-  `@react-oauth/google` (auth-code flow) + guest mode. On-device storage via IndexedDB + localStorage.
-- **Backend**: FastAPI + MongoDB (motor). Google OAuth code exchange + JWT sessions; documents
-  metadata CRUD. All routes under `/api`.
-- **Key files**: `pages/Workspace.js` (multi-doc reducer/orchestrator), `components/editor/*`
-  (TopBar, Sidebar, Reader, PageView, Toolbar, Tabs, StartScreen, Tutorial, ImageInsertDialog),
-  `lib/pdfEngine.js`, `lib/exportPdf.js`, `lib/storage.js`, `lib/constants.js`.
+  (worker from cdnjs), structural/export via `pdf-lib` (WYSIWYG raster export). **No auth.**
+  On-device storage via IndexedDB (full edit state + source PDF blobs) + localStorage
+  (recents list + storage-mode consent). Storage consent: "local" (persist) vs "session" (memory only).
+- **Backend**: FastAPI + MongoDB exists but is NOT used for document content in the current local-only flow.
+- **Key files**: `pages/Workspace.js` (multi-doc reducer/orchestrator, storage consent, doc ops),
+  `components/editor/*` (TopBar, Sidebar, Reader, PageView, Toolbar, Tabs, StartScreen,
+  ImageInsertDialog, StorageDialog, ConfirmDialog), `lib/pdfEngine.js`, `lib/exportPdf.js`,
+  `lib/storage.js`, `lib/constants.js`.
 
 ## User personas
 - Students/professionals annotating and reorganising PDFs entirely in the browser, privately on device.
@@ -30,7 +37,26 @@ default, single page, book/two-page).
 - Google-only accounts + guest mode.
 
 ## Implemented (2026-06)
-- **Mobile responsiveness (Android/phones)** — fixed "lacking & glitching on Android": TopBar now
+- **Android local-only rewrite (streamlined)** — removed login/auth entirely (`App.js` routes
+  straight to `Workspace`); removed heavy extras from the editing flow (merge/split/extract,
+  view-mode switcher, tutorial, pencil/shapes/text/link tools, 20-colour palette). Toolbar is now
+  4 tools (Scroll&zoom / Pen / Highlighter / Eraser) + 6 colours + ink settings.
+- **Storage consent** — first-load `StorageDialog` asks "Allow local storage" (IndexedDB autosave)
+  vs "Session only" (memory, lost on reload). Re-openable from TopBar → "Device storage & permission";
+  includes "Delete all local copies" (via ConfirmDialog). Mode stored in `localStorage pdf_storage_mode`.
+- **Tabs** — multi-doc tabs with per-doc save-status dot (`statuses` map); open another / new blank
+  / switch / close keep other docs intact.
+- **Zoom** — TopBar zoom-in/zoom-out buttons with % label, plus two-finger **pinch-to-zoom** in the
+  Reader (touch listeners on the scroll container, non-passive). Vertical scroll works in all tools.
+- **Draw/erase** — pen & highlighter draw+persist; eraser removes strokes (verified pixel diff 678→0)
+  and commits on pointer-up. Add blank/ruled/grid/dotted pages; insert image pages (crop/rotate/res).
+- **Download** — `save-device-btn` builds the edited PDF (pdf-lib raster) and downloads to device.
+- **Persistence** — full edit state + source PDF blobs saved to IndexedDB when "local" mode; recents
+  list in localStorage; reopen from Recent files after reload (verified).
+- **Verified 2026-06**: testing agent iteration_5.json — 16/16 P0 flows pass on desktop (1280x800)
+  and mobile (390x844); sidebar overlay+backdrop+thumb-tap-close working; no console errors.
+
+## Earlier implemented (pre-rewrite, mostly superseded)
   collapses to a compact page-nav + overflow menu (`mobile-menu-btn`) below 768px; PDF pages auto-fit
   the screen width on open (no forced horizontal scroll); pages sidebar becomes an opaque overlay
   drawer (+ backdrop) that auto-closes on page tap and defaults CLOSED on mobile; annotation canvas
@@ -52,12 +78,10 @@ default, single page, book/two-page).
   critical flex-shrink layout bug fixed; toolbar-reset persistence fixed.
 
 ## Backlog / remaining
-- **P0**: User to supply Google Cloud OAuth Client ID/Secret to enable Google login (guest works now).
-- **P1**: Audio comments (deferred in v1); Google Drive browse/open/save-back (deferred in v1).
-- **P1**: Persist annotations/edits per file across full reloads (currently recents reopen the original bytes).
-- **P2**: Page crop UI; image-insert dialog broader editing; vector (selectable-text) export option;
-  surface render errors instead of silent catch; split Workspace.js into hooks.
-
-## Next tasks
-- Collect Google OAuth credentials from user and set backend/.env + frontend/.env; re-verify login.
-- Optionally implement Drive sync and audio comments in follow-ups.
+- **P1**: Persist annotations/edits per file across full reloads — DONE (local mode saves full state).
+- **P2**: Optional export quality/resolution setting (current raster export is scale=2, large files).
+- **P2**: Vector (selectable-text) export option; page crop UI; broader image-insert editing.
+- **P3** (deferred per user): cloud sync / Google Drive; audio comments; native Android APK (needs a
+  separate Expo/React Native project — NOT possible to convert this web project in place).
+- **Note**: idle autosave-indicator label "On this device" could be clarified, but the first-load
+  storage dialog forces a choice so this is low priority.
