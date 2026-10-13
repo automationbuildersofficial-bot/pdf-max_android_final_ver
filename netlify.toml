@@ -1,0 +1,11 @@
+# Netlify deployment config for the PDF Studio frontend (static, client-side only)
+[build]
+  base = "frontend"
+  command = "CI=false yarn build"
+  publish = "build"
+
+# SPA fallback so client-side routes (/, /app) resolve to index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
