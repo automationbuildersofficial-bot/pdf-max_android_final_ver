@@ -125,6 +125,7 @@ export default function Workspace() {
 
   const [imgDlg, setImgDlg] = useState({ open: false, index: 0 });
   const [confirm, setConfirm] = useState(null);
+  const openInputRef = useRef(null);
 
   // ---- on-device storage consent: "local" (persist) | "session" (memory only) ----
   const [storageMode, setStorageMode] = useState(() => localStorage.getItem("pdf_storage_mode"));
@@ -462,7 +463,20 @@ export default function Workspace() {
         statuses={statuses}
         onActivate={(id) => dispatch({ type: "ACTIVATE", id })}
         onClose={(id) => dispatch({ type: "CLOSE", id })}
-        onNew={newBlankDoc}
+        onNew={() => openInputRef.current?.click()}
+      />
+
+      <input
+        ref={openInputRef}
+        data-testid="tab-open-input"
+        type="file"
+        accept="application/pdf,.pdf"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) openFile(file);
+        }}
       />
 
       <div className="flex-1 w-full flex overflow-hidden relative">
