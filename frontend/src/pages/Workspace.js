@@ -1,27 +1,26 @@
 import React, { useReducer, useState, useEffect, useCallback, useRef } from "react";
-import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeProvider";
 import { loadPdfDocument } from "@/lib/pdfEngine";
-import { exportPages, buildPdf, downloadBytes } from "@/lib/exportPdf";
-import { deleteFile, putState, getState, deleteState, getRecents, addRecent, removeRecent, updateRecent } from "@/lib/storage";
+import { buildPdf, downloadBytes } from "@/lib/exportPdf";
+import {
+  deleteFile,
+  putState,
+  getState,
+  deleteState,
+  getRecents,
+  addRecent,
+  removeRecent,
+  clearFiles,
+} from "@/lib/storage";
 import TopBar from "@/components/editor/TopBar";
 import Sidebar from "@/components/editor/Sidebar";
 import Reader from "@/components/editor/Reader";
 import Toolbar from "@/components/editor/Toolbar";
 import Tabs from "@/components/editor/Tabs";
 import StartScreen from "@/components/editor/StartScreen";
-import Tutorial from "@/components/editor/Tutorial";
 import ImageInsertDialog from "@/components/editor/ImageInsertDialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
+import StorageDialog from "@/components/editor/StorageDialog";
+import ConfirmDialog from "@/components/editor/ConfirmDialog";
 import { toast } from "sonner";
 import { Loader2, PanelLeftOpen } from "lucide-react";
 
@@ -29,7 +28,10 @@ let pid = 0;
 const newPageId = () => `p${Date.now()}_${pid++}`;
 const newDocId = () => `doc${Date.now()}_${pid++}`;
 
-function makeDoc({ id, name, sources, sourceBlobs, pages, fileHandle, recentId, activePageId, scale }) {
+const MIN_SCALE = 0.4;
+const MAX_SCALE = 3;
+
+function makeDoc({ id, name, sources, sourceBlobs, pages, recentId, activePageId, scale }) {
   return {
     id,
     name,
@@ -41,8 +43,7 @@ function makeDoc({ id, name, sources, sourceBlobs, pages, fileHandle, recentId, 
     activePageId: activePageId || pages[0]?.id || null,
     selected: new Set(),
     scale: scale || 1.4,
-    fileHandle: fileHandle || null,
-    recentId: recentId || null,
+    recentId: recentId || id,
   };
 }
 
@@ -94,8 +95,6 @@ function reducer(state, action) {
       return { ...state, docs: upd(action.id, (d) => ({ ...d, selected: action.selected })) };
     case "SET_SCALE":
       return { ...state, docs: upd(action.id, (d) => ({ ...d, scale: action.scale })) };
-    case "SET_HANDLE":
-      return { ...state, docs: upd(action.id, (d) => ({ ...d, fileHandle: action.handle })) };
     case "REFIT_ALL":
       return { ...state, docs: docs.map((d) => ({ ...d, scale: action.scale })) };
     default:
@@ -104,7 +103,6 @@ function reducer(state, action) {
 }
 
 export default function Workspace() {
-  const { user, logout } = useAuth();
   const { theme, toggle } = useTheme();
 
   const [{ docs, activeDocId }, dispatch] = useReducer(reducer, { docs: [], activeDocId: null });
@@ -120,32 +118,32 @@ export default function Workspace() {
   const [opacity, setOpacity] = useState(1);
   const [straight, setStraight] = useState(false);
 
-  const [viewMode, setViewMode] = useState(() => localStorage.getItem("pdf_view_mode") || "scroll");
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== "undefined" && window.innerWidth < 768) return false;
     return localStorage.getItem("pdf_sidebar_open") !== "0";
   });
 
-  const [tut, setTut] = useState({ open: false, step: 0 });
   const [imgDlg, setImgDlg] = useState({ open: false, index: 0 });
-  const [splitDlg, setSplitDlg] = useState({ open: false, at: 1 });
-  const [saveDlg, setSaveDlg] = useState(false);
-  const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved
+  const [confirm, setConfirm] = useState(null);
 
-  const supportsFS = typeof window !== "undefined" && !!window.showOpenFilePicker;
+  // ---- on-device storage consent: "local" (persist) | "session" (memory only) ----
+  const [storageMode, setStorageMode] = useState(() => localStorage.getItem("pdf_storage_mode"));
+  const [storageDlg, setStorageDlg] = useState(false);
+  const [statuses, setStatuses] = useState({}); // docId -> saved | saving | session | error
+  const setDocStatus = (id, s) => setStatuses((prev) => ({ ...prev, [id]: s }));
+
+  useEffect(() => {
+    if (!storageMode) setStorageDlg(true);
+  }, [storageMode]);
 
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== "undefined" && window.innerWidth < 768
   );
   useEffect(() => {
-    const fitScale = () =>
-      Math.max(0.4, Math.min(1.6, (window.innerWidth - 40) / 595));
+    const fitScale = () => Math.max(MIN_SCALE, Math.min(1.6, (window.innerWidth - 40) / 595));
     const onResize = () => {
       setIsMobile(window.innerWidth < 768);
-      // auto-refit pages to the new screen width on phones/tablets (e.g. rotate to landscape)
-      if (window.innerWidth < 1024) {
-        dispatch({ type: "REFIT_ALL", scale: fitScale() });
-      }
+      if (window.innerWidth < 1024) dispatch({ type: "REFIT_ALL", scale: fitScale() });
     };
     const onOrient = () => setTimeout(onResize, 150);
     window.addEventListener("resize", onResize);
@@ -157,48 +155,79 @@ export default function Workspace() {
   }, []);
   const initialScale = () =>
     typeof window !== "undefined" && window.innerWidth < 768
-      ? Math.max(0.4, (window.innerWidth - 40) / 595)
+      ? Math.max(MIN_SCALE, (window.innerWidth - 40) / 595)
       : 1.4;
 
-  useEffect(() => {
-    if (!localStorage.getItem("pdf_tutorial_done")) setTut({ open: true, step: 0 });
-  }, []);
-  useEffect(() => localStorage.setItem("pdf_view_mode", viewMode), [viewMode]);
   useEffect(() => localStorage.setItem("pdf_sidebar_open", sidebarOpen ? "1" : "0"), [sidebarOpen]);
 
-  // ---- persist full edit state on-device (debounced) so recents restore exactly ----
+  // ---- persist full edit state on-device (debounced) when local storage is allowed ----
   const saveTimers = useRef({});
-  const saveDocState = async (d) => {
-    if (!d?.recentId) return;
-    try {
-      await putState(d.recentId, {
-        name: d.name,
-        activePageId: d.activePageId,
-        pages: d.pages,
-        sourceBlobs: d.sourceBlobs,
-      });
-      const cur = getRecents().find((r) => r.id === d.recentId);
-      if (cur && cur.pages !== d.pages.length) {
-        setRecents(updateRecent(d.recentId, { pages: d.pages.length }));
+  const saveDocState = useCallback(
+    async (d) => {
+      if (storageMode !== "local" || !d?.recentId) return;
+      try {
+        await putState(d.recentId, {
+          name: d.name,
+          activePageId: d.activePageId,
+          pages: d.pages,
+          sourceBlobs: d.sourceBlobs,
+        });
+        setRecents(addRecent({ id: d.recentId, name: d.name, pages: d.pages.length, ts: Date.now() }));
+        setDocStatus(d.id, "saved");
+      } catch (e) {
+        setDocStatus(d.id, "error");
       }
-      setSaveStatus("saved");
-    } catch (e) {
-      console.warn("Failed to persist edits:", e);
-    }
-  };
+    },
+    [storageMode]
+  );
+
   useEffect(() => {
     docs.forEach((d) => {
-      if (!d.recentId) return;
-      clearTimeout(saveTimers.current[d.recentId]);
-      saveTimers.current[d.recentId] = setTimeout(() => saveDocState(d), 700);
+      if (storageMode !== "local") {
+        setDocStatus(d.id, "session");
+        return;
+      }
+      clearTimeout(saveTimers.current[d.id]);
+      saveTimers.current[d.id] = setTimeout(() => saveDocState(d), 700);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docs]);
+  }, [docs, storageMode]);
 
   const doc = docs.find((d) => d.id === activeDocId) || null;
   const pages = doc?.pages || [];
   const sources = doc?.sources || {};
   const activeIndex = doc ? pages.findIndex((p) => p.id === doc.activePageId) : -1;
+
+  // ---- storage consent handlers ----
+  const chooseStorage = (mode) => {
+    localStorage.setItem("pdf_storage_mode", mode);
+    setStorageMode(mode);
+    setStorageDlg(false);
+    if (mode === "local") {
+      docs.forEach((d) => saveDocState(d));
+      toast.success("Local autosave is on — your work stays on this device");
+    } else {
+      toast.message("Session only — download a copy to keep your edits");
+    }
+  };
+  const clearStorage = () => {
+    setConfirm({
+      title: "Delete all local copies?",
+      description: "Every PDF, image and edit saved in this browser will be permanently removed. Open tabs stay until you close them.",
+      label: "Delete everything",
+      danger: true,
+      action: async () => {
+        try {
+          await clearFiles();
+          localStorage.removeItem("pdf_recents");
+          setRecents([]);
+          toast.success("All local copies deleted");
+        } catch (e) {
+          toast.error("Could not clear local storage");
+        }
+      },
+    });
+  };
 
   // ---- open / build ----
   const buildPdfPages = async (buf, srcId) => {
@@ -221,43 +250,40 @@ export default function Workspace() {
     return { pdfDoc, list };
   };
 
-  const openCore = async (buf, name, { fileHandle, recentId } = {}) => {
-    const srcId = "src" + Date.now();
-    // pdf.js transfers the underlying ArrayBuffer to its worker, which detaches `buf`.
-    // Snapshot the bytes into a Blob BEFORE loading so persistence keeps the real PDF.
-    const srcBlob = new Blob([buf.slice()], { type: "application/pdf" });
-    const { pdfDoc, list } = await buildPdfPages(buf, srcId);
-    const id = newDocId();
-    const rid = recentId || id;
-    const document = makeDoc({
-      id,
-      name,
-      sources: { [srcId]: pdfDoc },
-      sourceBlobs: { [srcId]: srcBlob },
-      pages: list,
-      fileHandle,
-      recentId: rid,
-      scale: initialScale(),
-    });
-    dispatch({ type: "OPEN", doc: document });
-    return { rid, count: list.length, docState: document };
-  };
-
-  const openFile = async (file, fileHandle) => {
+  const openFile = async (file) => {
     try {
       setLoading(true);
       const buf = new Uint8Array(await file.arrayBuffer());
       const name = file.name.replace(/\.pdf$/i, "");
-      const byteSize = buf.length;
-      const { rid, count, docState } = await openCore(buf, name, { fileHandle });
-      await saveDocState(docState);
-      setRecents(addRecent({ id: rid, name, pages: count, ts: Date.now(), size: byteSize }));
-      toast.success(`Opened “${file.name}” · ${count} pages`);
+      const srcId = "src" + Date.now();
+      const srcBlob = new Blob([buf.slice()], { type: "application/pdf" });
+      const { pdfDoc, list } = await buildPdfPages(buf, srcId);
+      const id = newDocId();
+      const document = makeDoc({
+        id,
+        name,
+        sources: { [srcId]: pdfDoc },
+        sourceBlobs: { [srcId]: srcBlob },
+        pages: list,
+        scale: initialScale(),
+      });
+      dispatch({ type: "OPEN", doc: document });
+      await saveDocState(document);
+      toast.success(`Opened “${file.name}” · ${list.length} pages`);
     } catch (e) {
       toast.error("Could not open this PDF.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const newBlankDoc = () => {
+    const page = { id: newPageId(), kind: "blank", lineStyle: "blank", width: 595, height: 842, rotation: 0, annotations: [] };
+    const id = newDocId();
+    const document = makeDoc({ id, name: "Untitled", sources: {}, pages: [page], scale: initialScale() });
+    dispatch({ type: "OPEN", doc: document });
+    saveDocState(document);
+    toast.success("New blank document");
   };
 
   const openRecent = async (r) => {
@@ -274,15 +300,15 @@ export default function Workspace() {
         setRecents(removeRecent(r.id));
         return;
       }
-      const sources = {};
+      const src = {};
       for (const [srcId, blob] of Object.entries(state.sourceBlobs || {})) {
         const buf = new Uint8Array(await blob.arrayBuffer());
-        sources[srcId] = await loadPdfDocument(buf);
+        src[srcId] = await loadPdfDocument(buf);
       }
       const document = makeDoc({
         id: newDocId(),
         name: state.name || r.name,
-        sources,
+        sources: src,
         sourceBlobs: state.sourceBlobs || {},
         pages: state.pages,
         activePageId: state.activePageId,
@@ -290,8 +316,7 @@ export default function Workspace() {
         scale: initialScale(),
       });
       dispatch({ type: "OPEN", doc: document });
-      setSaveStatus("saved");
-      setRecents(addRecent({ ...r, pages: state.pages.length, ts: Date.now() }));
+      setDocStatus(document.id, "saved");
     } catch (e) {
       toast.error("Could not reopen this file.");
     } finally {
@@ -299,62 +324,36 @@ export default function Workspace() {
     }
   };
 
-  const removeRecentFile = async (id) => {
-    await deleteState(id);
-    await deleteFile(id);
-    setRecents(removeRecent(id));
-    toast.success("Removed from device — its saved edits were wiped");
-  };
-
-  const openFromDevice = async () => {
-    if (!supportsFS) {
-      toast.error("This browser can't access device files directly — use Browse instead.");
-      return;
-    }
-    try {
-      const [handle] = await window.showOpenFilePicker({
-        types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }],
-        multiple: false,
-      });
-      const file = await handle.getFile();
-      await openFile(file, handle);
-    } catch (e) {}
-  };
-
-  const mergeFile = async (file) => {
-    if (!doc) return;
-    try {
-      setLoading(true);
-      const buf = new Uint8Array(await file.arrayBuffer());
-      const srcId = "src" + Date.now();
-      const srcBlob = new Blob([buf.slice()], { type: "application/pdf" });
-      const { pdfDoc, list } = await buildPdfPages(buf, srcId);
-      doc.sources[srcId] = pdfDoc; // sources mutation ok (kept in memory)
-      doc.sourceBlobs[srcId] = srcBlob;
-      setSaveStatus("saving");
-      dispatch({ type: "COMMIT", id: doc.id, pages: [...pages, ...list] });
-      toast.success(`Merged ${list.length} pages from “${file.name}”`);
-    } catch (e) {
-      toast.error("Could not merge this PDF.");
-    } finally {
-      setLoading(false);
-    }
+  const removeRecentFile = (id) => {
+    setConfirm({
+      title: "Remove from device?",
+      description: "This deletes the saved copy and all its edits from this browser.",
+      label: "Remove",
+      danger: true,
+      action: async () => {
+        await deleteState(id);
+        await deleteFile(id);
+        setRecents(removeRecent(id));
+        toast.success("Removed from device");
+      },
+    });
   };
 
   // ---- per-doc operations ----
   const commit = (nextPages) => {
-    setSaveStatus("saving");
+    setDocStatus(doc.id, storageMode === "local" ? "saving" : "session");
     dispatch({ type: "COMMIT", id: doc.id, pages: nextPages });
   };
   const setActivePage = useCallback(
     (pageId) => dispatch({ type: "SET_PAGE", id: activeDocId, pageId }),
     [activeDocId]
   );
-  const setScale = (scale) => dispatch({ type: "SET_SCALE", id: doc.id, scale });
+  const setScale = (scale) =>
+    dispatch({ type: "SET_SCALE", id: doc.id, scale: Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale)) });
 
   const commitAnnotations = useCallback(
     (pageId, anns) => {
-      setSaveStatus("saving");
+      setDocStatus(activeDocId, storageMode === "local" ? "saving" : "session");
       dispatch({
         type: "COMMIT",
         id: activeDocId,
@@ -363,7 +362,7 @@ export default function Workspace() {
         ),
       });
     },
-    [activeDocId, docs]
+    [activeDocId, docs, storageMode]
   );
 
   const rotatePage = (pageId) =>
@@ -416,145 +415,54 @@ export default function Workspace() {
     dispatch({ type: "SET_SELECTED", id: doc.id, selected: n });
   };
 
-  const exportFull = async () => {
-    if (!pages.length) return;
-    setLoading(true);
-    try {
-      await exportPages(pages, sources, `${doc.name || "document"}-edited.pdf`);
-      toast.success("Exported edited PDF");
-    } catch (e) {
-      toast.error("Export failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const exportSelected = async () => {
-    const sel = pages.filter((p) => doc.selected.has(p.id));
-    if (!sel.length) return;
-    setLoading(true);
-    try {
-      await exportPages(sel, sources, `${doc.name || "document"}-extract.pdf`);
-      toast.success(`Extracted ${sel.length} pages`);
-    } catch (e) {
-      toast.error("Extract failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const doSplit = async () => {
-    const at = Math.max(1, Math.min(pages.length - 1, splitDlg.at));
-    const first = pages.slice(0, at);
-    const second = pages.slice(at);
-    setSplitDlg({ open: false, at });
-    setLoading(true);
-    try {
-      await exportPages(first, sources, `${doc.name || "document"}-part1.pdf`);
-      await exportPages(second, sources, `${doc.name || "document"}-part2.pdf`);
-      toast.success(`Split into ${first.length} + ${second.length} pages`);
-    } catch (e) {
-      toast.error("Split failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const saveToDevice = async () => {
-    setSaveDlg(false);
+  const downloadDoc = async () => {
     if (!doc || !pages.length) return;
     setLoading(true);
     try {
       const bytes = await buildPdf(pages, sources);
-      if (doc.fileHandle) {
-        let perm = await doc.fileHandle.queryPermission?.({ mode: "readwrite" });
-        if (perm !== "granted") perm = await doc.fileHandle.requestPermission?.({ mode: "readwrite" });
-        if (perm !== "granted") {
-          toast.error("Permission to modify the file was denied.");
-          return;
-        }
-        const writable = await doc.fileHandle.createWritable();
-        await writable.write(bytes);
-        await writable.close();
-        toast.success("Changes saved back to the file on your device");
-      } else if (supportsFS) {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: `${doc.name || "document"}.pdf`,
-          types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(bytes);
-        await writable.close();
-        dispatch({ type: "SET_HANDLE", id: doc.id, handle });
-        toast.success("Saved to your device");
-      } else {
-        downloadBytes(bytes, `${doc.name || "document"}.pdf`);
-        toast.success("Downloaded edited PDF");
-      }
+      downloadBytes(bytes, `${doc.name || "document"}.pdf`);
+      toast.success("Downloaded edited PDF to your device");
     } catch (e) {
-      toast.error("Could not save to device.");
+      toast.error("Download failed");
     } finally {
       setLoading(false);
     }
   };
 
-  const closeTutorial = () => {
-    localStorage.setItem("pdf_tutorial_done", "1");
-    setTut((t) => ({ ...t, open: false }));
-  };
-
-  const goPage = (delta) => {
-    if (activeIndex < 0) return;
-    const ni = Math.max(0, Math.min(pages.length - 1, activeIndex + delta));
-    setActivePage(pages[ni].id);
-  };
-
   const hasDoc = !!doc;
+  const activeStatus = statuses[activeDocId] || (storageMode === "session" ? "session" : "idle");
 
   return (
     <div className="h-screen w-full flex flex-col overflow-hidden bg-background text-foreground">
       <TopBar
-        isMobile={isMobile}
-        user={user}
-        logout={logout}
         theme={theme}
         toggleTheme={toggle}
-        docName={doc?.name}
         hasDoc={hasDoc}
-        saveStatus={saveStatus}
+        saveStatus={activeStatus}
         onOpenFile={openFile}
-        onOpenFromDevice={openFromDevice}
-        onSaveToDevice={() => (doc?.fileHandle ? setSaveDlg(true) : saveToDevice())}
-        supportsFS={supportsFS}
-        onMergeFile={mergeFile}
-        onSplit={() => setSplitDlg({ open: true, at: Math.max(1, Math.ceil(pages.length / 2)) })}
-        onExport={exportFull}
-        onExportSelected={exportSelected}
-        selectedCount={doc?.selected.size || 0}
-        canUndo={(doc?.past.length || 0) > 0}
-        canRedo={(doc?.future.length || 0) > 0}
+        onDownload={downloadDoc}
+        onBlank={newBlankDoc}
+        onStorage={() => setStorageDlg(true)}
         undo={() => dispatch({ type: "UNDO", id: doc.id })}
         redo={() => dispatch({ type: "REDO", id: doc.id })}
-        scale={doc?.scale || 1.4}
-        setScale={setScale}
-        onRotateActive={() => doc && rotatePage(doc.activePageId)}
-        pageIndex={activeIndex < 0 ? 0 : activeIndex}
-        pageCount={pages.length}
-        onPrev={() => goPage(-1)}
-        onNext={() => goPage(1)}
-        onHelp={() => setTut({ open: true, step: 0 })}
-        viewMode={viewMode}
-        setViewMode={setViewMode}
-        sidebarOpen={sidebarOpen}
+        canUndo={(doc?.past.length || 0) > 0}
+        canRedo={(doc?.future.length || 0) > 0}
         onToggleSidebar={() => setSidebarOpen((s) => !s)}
+        onAddPage={(style) => addPage(activeIndex < 0 ? pages.length : activeIndex + 1, "blank", style)}
+        onImage={() => setImgDlg({ open: true, index: activeIndex < 0 ? pages.length : activeIndex + 1 })}
+        scale={doc?.scale || 1.4}
+        onZoomIn={() => setScale((doc?.scale || 1.4) + 0.2)}
+        onZoomOut={() => setScale((doc?.scale || 1.4) - 0.2)}
+        busy={loading}
       />
 
       <Tabs
         docs={docs}
         activeDocId={activeDocId}
+        statuses={statuses}
         onActivate={(id) => dispatch({ type: "ACTIVATE", id })}
         onClose={(id) => dispatch({ type: "CLOSE", id })}
-        onNew={() => dispatch({ type: "ACTIVATE", id: null })}
+        onNew={newBlankDoc}
       />
 
       <div className="flex-1 w-full flex overflow-hidden relative">
@@ -588,7 +496,7 @@ export default function Workspace() {
           </>
         )}
 
-        <main className="flex-1 h-full bg-canvas overflow-hidden relative" data-testid="canvas-area">
+        <main className="flex-1 h-full bg-canvas overflow-hidden relative flex flex-col" data-testid="canvas-area">
           {hasDoc && !sidebarOpen && (
             <button
               data-testid="sidebar-expand-btn"
@@ -606,8 +514,8 @@ export default function Workspace() {
               onOpenFile={openFile}
               onOpenRecent={openRecent}
               onRemoveRecent={removeRecentFile}
-              onOpenDevice={openFromDevice}
-              supportsFS={supportsFS}
+              onOpenDevice={() => {}}
+              supportsFS={false}
               loading={loading}
               dragOver={dragOver}
               setDragOver={setDragOver}
@@ -616,9 +524,10 @@ export default function Workspace() {
             <>
               <Reader
                 doc={doc}
-                viewMode={viewMode}
+                viewMode="scroll"
                 setActivePage={setActivePage}
                 onCommit={commitAnnotations}
+                onSetScale={setScale}
                 toolState={{ tool, color, size, opacity, straight }}
               />
               <Toolbar
@@ -638,71 +547,22 @@ export default function Workspace() {
         </main>
       </div>
 
-      <Tutorial
-        open={tut.open}
-        step={tut.step}
-        setStep={(s) => setTut((t) => ({ ...t, step: s }))}
-        onClose={closeTutorial}
-      />
-
       <ImageInsertDialog
         open={imgDlg.open}
         onOpenChange={(v) => setImgDlg((d) => ({ ...d, open: v }))}
         onInsert={insertImage}
       />
 
-      <Dialog open={splitDlg.open} onOpenChange={(v) => setSplitDlg((d) => ({ ...d, open: v }))}>
-        <DialogContent className="sm:max-w-md" data-testid="split-dialog">
-          <DialogHeader>
-            <DialogTitle>Split document</DialogTitle>
-            <DialogDescription>
-              Part 1 gets pages 1–{splitDlg.at}, Part 2 gets the rest. Both download
-              as separate PDFs.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center gap-4 py-2">
-            <span className="text-sm text-muted-foreground w-28 shrink-0">Split after page</span>
-            <Slider
-              data-testid="split-slider"
-              value={[splitDlg.at]}
-              min={1}
-              max={Math.max(1, pages.length - 1)}
-              step={1}
-              onValueChange={(v) => setSplitDlg((d) => ({ ...d, at: v[0] }))}
-            />
-            <span className="text-sm font-semibold tabular-nums w-8 text-right">{splitDlg.at}</span>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setSplitDlg((d) => ({ ...d, open: false }))}>
-              Cancel
-            </Button>
-            <Button onClick={doSplit} data-testid="split-confirm-btn">
-              Split &amp; download
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <StorageDialog
+        open={storageDlg}
+        onOpenChange={setStorageDlg}
+        mode={storageMode}
+        onChoose={chooseStorage}
+        onClear={clearStorage}
+        busy={loading}
+      />
 
-      <Dialog open={saveDlg} onOpenChange={setSaveDlg}>
-        <DialogContent className="sm:max-w-md" data-testid="save-device-dialog">
-          <DialogHeader>
-            <DialogTitle>Save changes to your device?</DialogTitle>
-            <DialogDescription>
-              This will write your edited PDF — annotations, page changes and all —
-              back onto the original file on this device. Your browser may ask you to
-              grant write permission.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setSaveDlg(false)}>
-              Cancel
-            </Button>
-            <Button onClick={saveToDevice} data-testid="save-device-confirm-btn">
-              Grant &amp; save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog value={confirm} onClose={() => setConfirm(null)} />
 
       {loading && hasDoc && (
         <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg bg-card border border-border px-3 py-2 shadow-lg text-sm">

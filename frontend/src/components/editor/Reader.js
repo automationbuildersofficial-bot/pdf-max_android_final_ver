@@ -12,7 +12,7 @@ function buildSpreads(pages) {
   return spreads;
 }
 
-export default function Reader({ doc, viewMode, setActivePage, onCommit, toolState }) {
+export default function Reader({ doc, viewMode, setActivePage, onCommit, onSetScale, toolState }) {
   const { pages, sources, scale, activePageId } = doc;
   const { tool, color, size, opacity, straight } = toolState;
   const containerRef = useRef(null);
@@ -24,6 +24,48 @@ export default function Reader({ doc, viewMode, setActivePage, onCommit, toolSta
   activateRef.current = setActivePage;
 
   const single = viewMode === "single";
+
+  // pinch-to-zoom (two fingers) on touch devices
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
+  const setScaleRef = useRef(onSetScale);
+  setScaleRef.current = onSetScale;
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    let startDist = 0;
+    let startScale = scale;
+    let pinching = false;
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const onStart = (e) => {
+      if (e.touches.length === 2) {
+        pinching = true;
+        startDist = dist(e.touches);
+        startScale = scaleRef.current;
+      }
+    };
+    const onMovePinch = (e) => {
+      if (pinching && e.touches.length === 2) {
+        e.preventDefault();
+        const ratio = dist(e.touches) / (startDist || 1);
+        setScaleRef.current?.(startScale * ratio);
+      }
+    };
+    const onEnd = (e) => {
+      if (e.touches.length < 2) pinching = false;
+    };
+    root.addEventListener("touchstart", onStart, { passive: false });
+    root.addEventListener("touchmove", onMovePinch, { passive: false });
+    root.addEventListener("touchend", onEnd);
+    root.addEventListener("touchcancel", onEnd);
+    return () => {
+      root.removeEventListener("touchstart", onStart);
+      root.removeEventListener("touchmove", onMovePinch);
+      root.removeEventListener("touchend", onEnd);
+      root.removeEventListener("touchcancel", onEnd);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // IntersectionObserver for lazy paint + active-page tracking (scroll & book modes)
   useEffect(() => {
