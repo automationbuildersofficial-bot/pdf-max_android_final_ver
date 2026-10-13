@@ -97,6 +97,12 @@ function reducer(state, action) {
       return { ...state, docs: upd(action.id, (d) => ({ ...d, scale: action.scale })) };
     case "REFIT_ALL":
       return { ...state, docs: docs.map((d) => ({ ...d, scale: action.scale })) };
+    case "MOVE_DOC": {
+      const next = [...docs];
+      const [moved] = next.splice(action.from, 1);
+      next.splice(action.to, 0, moved);
+      return { ...state, docs: next };
+    }
     default:
       return state;
   }
@@ -126,6 +132,7 @@ export default function Workspace() {
   const [imgDlg, setImgDlg] = useState({ open: false, index: 0 });
   const [confirm, setConfirm] = useState(null);
   const openInputRef = useRef(null);
+  const mainRef = useRef(null);
 
   // ---- on-device storage consent: "local" (persist) | "session" (memory only) ----
   const [storageMode, setStorageMode] = useState(() => localStorage.getItem("pdf_storage_mode"));
@@ -352,6 +359,15 @@ export default function Workspace() {
   const setScale = (scale) =>
     dispatch({ type: "SET_SCALE", id: doc.id, scale: Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale)) });
 
+  const fitToWidth = () => {
+    if (!doc) return;
+    const avail = (mainRef.current?.clientWidth || window.innerWidth) - 48;
+    const pg = pages[Math.max(0, activeIndex)];
+    const rotated = pg && (pg.rotation === 90 || pg.rotation === 270);
+    const pw = (rotated ? pg?.height : pg?.width) || 595;
+    setScale(avail / pw);
+  };
+
   const commitAnnotations = useCallback(
     (pageId, anns) => {
       setDocStatus(activeDocId, storageMode === "local" ? "saving" : "session");
@@ -421,10 +437,22 @@ export default function Workspace() {
     setLoading(true);
     try {
       const bytes = await buildPdf(pages, sources);
-      downloadBytes(bytes, `${doc.name || "document"}.pdf`);
+      const filename = `${doc.name || "document"}.pdf`;
+      const file = new File([bytes], filename, { type: "application/pdf" });
+      if (typeof navigator !== "undefined" && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: filename });
+          toast.success("Shared your edited PDF");
+          return;
+        } catch (err) {
+          if (err && err.name === "AbortError") return; // user dismissed the share sheet
+          // otherwise fall through to a normal download
+        }
+      }
+      downloadBytes(bytes, filename);
       toast.success("Downloaded edited PDF to your device");
     } catch (e) {
-      toast.error("Download failed");
+      toast.error("Could not export this PDF");
     } finally {
       setLoading(false);
     }
@@ -454,6 +482,7 @@ export default function Workspace() {
         scale={doc?.scale || 1.4}
         onZoomIn={() => setScale((doc?.scale || 1.4) + 0.2)}
         onZoomOut={() => setScale((doc?.scale || 1.4) - 0.2)}
+        onFitWidth={fitToWidth}
         busy={loading}
       />
 
@@ -463,6 +492,7 @@ export default function Workspace() {
         statuses={statuses}
         onActivate={(id) => dispatch({ type: "ACTIVATE", id })}
         onClose={(id) => dispatch({ type: "CLOSE", id })}
+        onReorder={(from, to) => dispatch({ type: "MOVE_DOC", from, to })}
         onNew={() => openInputRef.current?.click()}
       />
 
@@ -510,7 +540,7 @@ export default function Workspace() {
           </>
         )}
 
-        <main className="flex-1 h-full bg-canvas overflow-hidden relative flex flex-col" data-testid="canvas-area">
+        <main ref={mainRef} className="flex-1 h-full bg-canvas overflow-hidden relative flex flex-col" data-testid="canvas-area">
           {hasDoc && !sidebarOpen && (
             <button
               data-testid="sidebar-expand-btn"

@@ -1,10 +1,10 @@
 import React, { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
-import { FileText, FolderOpen, Download, Undo2, Redo2, Sun, Moon, MoreVertical, PanelLeft, Plus, ImagePlus, HardDrive, FilePlus2, ZoomIn, ZoomOut } from "lucide-react";
+import { FileText, FolderOpen, Download, Undo2, Redo2, Sun, Moon, MoreVertical, PanelLeft, Plus, ImagePlus, HardDrive, FilePlus2, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 
 const STATUS = { saved: "Saved locally", saving: "Saving locally…", error: "Local save failed · download a copy", session: "Session only", idle: "On this device" };
-export default function TopBar({ theme, toggleTheme, hasDoc, saveStatus, onOpenFile, onDownload, undo, redo, canUndo, canRedo, onToggleSidebar, onAddPage, onImage, onStorage, busy, onBlank, scale, onZoomIn, onZoomOut }) {
+export default function TopBar({ theme, toggleTheme, hasDoc, saveStatus, onOpenFile, onDownload, undo, redo, canUndo, canRedo, onToggleSidebar, onAddPage, onImage, onStorage, busy, onBlank, scale, onZoomIn, onZoomOut, onFitWidth }) {
   const input = useRef(null);
   const icon = (id, label, Icon, action, disabled = false) => <Button key={id} data-testid={id} aria-label={label} title={label} size="icon" variant="ghost" className="h-11 w-11 shrink-0" onClick={action} disabled={disabled}><Icon className="h-5 w-5" /></Button>;
   return <header data-testid="top-bar" className="bg-card border-b border-border shrink-0 z-30">
@@ -34,6 +34,7 @@ export default function TopBar({ theme, toggleTheme, hasDoc, saveStatus, onOpenF
       {icon("zoom-out-btn", "Zoom out", ZoomOut, onZoomOut, busy)}
       <span data-testid="zoom-level" className="text-xs tabular-nums text-muted-foreground w-10 text-center select-none">{Math.round((scale || 1.4) / 1.4 * 100)}%</span>
       {icon("zoom-in-btn", "Zoom in", ZoomIn, onZoomIn, busy)}
+      {icon("fit-width-btn", "Fit to screen width", Maximize2, onFitWidth, busy)}
       <DropdownMenu>
         <DropdownMenuTrigger asChild><Button data-testid="add-page-btn" aria-label="Add page" title="Add page" variant="ghost" size="icon" className="h-11 w-11" disabled={busy}><Plus className="h-5 w-5" /></Button></DropdownMenuTrigger>
         <DropdownMenuContent data-testid="add-page-menu" align="end">
