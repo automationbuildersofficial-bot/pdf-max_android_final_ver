@@ -32,7 +32,7 @@ export default function TopBar({ theme, toggleTheme, hasDoc, saveStatus, onOpenF
       {icon("redo-btn", "Redo", Redo2, redo, !canRedo || busy)}
       <div className="flex-1" />
       {icon("zoom-out-btn", "Zoom out", ZoomOut, onZoomOut, busy)}
-      <span data-testid="zoom-level" className="text-xs tabular-nums text-muted-foreground w-10 text-center select-none">{Math.round((scale || 1.4) / 1.4 * 100)}%</span>
+      <span data-testid="zoom-level" className="text-xs tabular-nums text-muted-foreground w-10 text-center select-none">{Math.round((scale || 1.4) * 100)}%</span>
       {icon("zoom-in-btn", "Zoom in", ZoomIn, onZoomIn, busy)}
       {icon("fit-width-btn", "Fit to screen width", Maximize2, onFitWidth, busy)}
       <DropdownMenu>

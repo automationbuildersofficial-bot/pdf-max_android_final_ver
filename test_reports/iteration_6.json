@@ -1,0 +1,24 @@
+{
+  "summary": "Focused regression of 3 new PDF Studio enhancements plus tab/draw regression. ALL PASSED on desktop (1280x800) and mobile sanity (390x844). (1) Fit-to-width: initial zoom 100%/canvas=833px → after fit 113%/canvas=944px (expands to fill canvas-area width), zoom-level label updates correctly. (2) Zoom in/out alongside fit still work: 113→128→113% with canvas width 944→1063→944. (3) Save/Share fallback: without Web Share file support in Chromium, click save-device-btn triggered a download of 'a.pdf' (16645 bytes) with success toast — no crash from navigator.canShare. (4) Drag-to-reorder tabs: opened 3 PDFs via tab-open-input (a,b,c), dragged first tab onto third tab position via Playwright drag_and_drop; labels order changed from [a,b,c] to [b,c,a] confirming MOVE_DOC reducer path. (5) tab-new-btn + tab-open-input flow adds new tabs rather than blank page. (6) Tab switch (click tab-<id> sets aria-selected=true) and close (closing non-active keeps active; closing active falls back to remaining tab). (7) Pen draw → 977 non-transparent pixels on annotation-canvas; eraser (tool-eraser-btn) → 0 pixels, confirming eraser regression intact. Mobile 390x844 fit-width executed without error. No console/page errors (only benign Canvas2D willReadFrequently warnings carried over from iter_5).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Workspace.js is now 619 lines — approaching the 700-line split threshold. Consider extracting reducer + storage consent + doc operations into hooks.",
+    "fitToWidth divides avail by raw page width (595) which gives scale ≈ (clientWidth-48)/595. This is correct, but there's a subtle inconsistency: the zoom-level label is computed as scale/1.4*100% (baseline 1.4), so after fit-width on desktop, label reads 113% rather than 100% which may confuse users expecting fit-to-width == 100%. Consider rebasing label to actual CSS px/pt ratio or showing a 'Fit' badge.",
+    "downloadDoc share path checks navigator.canShare({files}) correctly and swallows AbortError — good. However if navigator.share succeeds silently (user cancels after accept on some platforms), fallback download won't fire — acceptable but worth a comment.",
+    "Tabs.js uses native HTML5 DnD without touch fallback — on Android (touch-only), drag-to-reorder will not work since HTML5 drag events don't fire from touch. Consider pointer-events-based reordering (dnd-kit or similar) to actually enable this on the primary target platform (Android)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "seed_data_creation": "Created /tmp/pdftest/a.pdf (2 pages), b.pdf (3 pages), c.pdf (2 pages) via reportlab.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 3 new enhancements verified + tabs/draw/erase regression. Note: HTML5 drag works in headless Chromium with mouse but will NOT work on actual Android touch devices — flagged in code review. Fit-width label shows 113% at fit on 1280-wide canvas due to 1.4 baseline scaling in zoom-level math.",
+  "rca of the issue": "N/A — no bugs reproduced."
+}
