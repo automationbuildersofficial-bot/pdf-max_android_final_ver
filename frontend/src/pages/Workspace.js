@@ -28,6 +28,37 @@ let pid = 0;
 const newPageId = () => `p${Date.now()}_${pid++}`;
 const newDocId = () => `doc${Date.now()}_${pid++}`;
 
+function PageJump({ current, total, onJump }) {
+  const [val, setVal] = useState(String(current));
+  useEffect(() => setVal(String(current)), [current]);
+  const commit = () => {
+    const n = parseInt(val, 10);
+    if (!isNaN(n)) onJump(n);
+    else setVal(String(current));
+  };
+  return (
+    <div
+      data-testid="page-jump"
+      className="absolute bottom-4 right-4 z-30 flex items-center gap-1 rounded-full bg-card/95 backdrop-blur border border-border shadow-lg px-3 py-1.5 text-sm"
+    >
+      <input
+        data-testid="page-jump-input"
+        type="number"
+        min={1}
+        max={total}
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        onKeyDown={(e) => { if (e.key === "Enter") { commit(); e.target.blur(); } }}
+        onBlur={commit}
+        aria-label="Go to page"
+        className="w-9 bg-transparent text-center outline-none tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+      />
+      <span className="text-muted-foreground whitespace-nowrap">/ {total}</span>
+    </div>
+  );
+}
+
 const MIN_SCALE = 0.4;
 const MAX_SCALE = 3;
 
@@ -131,6 +162,7 @@ export default function Workspace() {
 
   const [imgDlg, setImgDlg] = useState({ open: false, index: 0 });
   const [confirm, setConfirm] = useState(null);
+  const [fitActive, setFitActive] = useState(false);
   const openInputRef = useRef(null);
   const mainRef = useRef(null);
 
@@ -359,6 +391,18 @@ export default function Workspace() {
   const setScale = (scale) =>
     dispatch({ type: "SET_SCALE", id: doc.id, scale: Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale)) });
 
+  const userZoom = (scale) => {
+    setFitActive(false);
+    setScale(scale);
+  };
+
+  const jumpToPage = (n) => {
+    if (!doc) return;
+    const t = Math.max(1, Math.min(pages.length, Math.trunc(n)));
+    const pg = pages[t - 1];
+    if (pg) setActivePage(pg.id);
+  };
+
   const fitToWidth = () => {
     if (!doc) return;
     const avail = (mainRef.current?.clientWidth || window.innerWidth) - 48;
@@ -366,7 +410,10 @@ export default function Workspace() {
     const rotated = pg && (pg.rotation === 90 || pg.rotation === 270);
     const pw = (rotated ? pg?.height : pg?.width) || 595;
     setScale(avail / pw);
+    setFitActive(true);
   };
+
+  useEffect(() => setFitActive(false), [activeDocId]);
 
   const commitAnnotations = useCallback(
     (pageId, anns) => {
@@ -480,9 +527,10 @@ export default function Workspace() {
         onAddPage={(style) => addPage(activeIndex < 0 ? pages.length : activeIndex + 1, "blank", style)}
         onImage={() => setImgDlg({ open: true, index: activeIndex < 0 ? pages.length : activeIndex + 1 })}
         scale={doc?.scale || 1.4}
-        onZoomIn={() => setScale((doc?.scale || 1.4) + 0.2)}
-        onZoomOut={() => setScale((doc?.scale || 1.4) - 0.2)}
+        onZoomIn={() => userZoom((doc?.scale || 1.4) + 0.2)}
+        onZoomOut={() => userZoom((doc?.scale || 1.4) - 0.2)}
         onFitWidth={fitToWidth}
+        fitActive={fitActive}
         busy={loading}
       />
 
@@ -571,7 +619,7 @@ export default function Workspace() {
                 viewMode="scroll"
                 setActivePage={setActivePage}
                 onCommit={commitAnnotations}
-                onSetScale={setScale}
+                onSetScale={userZoom}
                 toolState={{ tool, color, size, opacity, straight }}
               />
               <Toolbar
@@ -586,6 +634,13 @@ export default function Workspace() {
                 straight={straight}
                 setStraight={setStraight}
               />
+              {pages.length > 1 && (
+                <PageJump
+                  current={activeIndex < 0 ? 1 : activeIndex + 1}
+                  total={pages.length}
+                  onJump={jumpToPage}
+                />
+              )}
             </>
           )}
         </main>
